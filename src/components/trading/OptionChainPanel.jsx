@@ -6,9 +6,10 @@ import {
   ChevronLeft,
   ChevronRight,
   AlertTriangle,
+  RefreshCw,
 } from "lucide-react";
 import { AssetSelector } from "./AssetSelector";
-import { getDayContracts, getOptionChain } from "../../utils/simulatorUtils";
+import { getDayContracts, getOptionChain, fetchLTP } from "../../utils/simulatorUtils";
 
 function formatDateForPill(dateStr) {
   if (!dateStr) return "";
@@ -23,30 +24,100 @@ function formatDateForPill(dateStr) {
 function getDaysToExpiry(dateStr, currentTimestamp) {
   if (!dateStr) return "";
   const expiry = new Date(dateStr);
-  const diffTime = Math.abs(expiry - currentTimestamp);
+  const diffTime = expiry.getTime() - currentTimestamp.getTime();
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  return `${diffDays}d`;
+  return `${diffDays > 0 ? diffDays : 0}d`;
+}
+
+function getDaysToExpiryFull(dateStr, currentTimestamp) {
+  if (!dateStr) return "";
+  const expiry = new Date(dateStr);
+  const diffTime = expiry.getTime() - currentTimestamp.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return `${diffDays > 0 ? diffDays : 0} days`;
+}
+
+function formatFutureExpiry(dateStr) {
+  if (!dateStr) return "";
+  const date = new Date(dateStr);
+  const day = date.getDate().toString().padStart(2, "0");
+  const month = date.toLocaleString("default", { month: "short" });
+  const year = date.getFullYear().toString().substring(2);
+  return `${day} ${month} ${year}`;
 }
 
 export function OptionChainPanel({
   currentTimestamp = new Date("2026-06-01T09:16:00"),
   selectedAsset,
   setSelectedAsset,
+  onDataLoaded,
 }) {
   const [expiries, setExpiries] = useState([]);
-  const [selectedExpiry, setSelectedExpiry] = useState(null);
+  const [selectedExpiry, setSelectedExpiry] = useState(() => {
+    return localStorage.getItem("selectedExpiry") || null;
+  });
+
+  useEffect(() => {
+    if (selectedExpiry) {
+      localStorage.setItem("selectedExpiry", selectedExpiry);
+    }
+  }, [selectedExpiry]);
 
   const [optionChainData, setOptionChainData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  const [selectedFutureExpiry, setSelectedFutureExpiry] = useState(null);
+  const [isFutureDropdownOpen, setIsFutureDropdownOpen] = useState(false);
+  const futureDropdownRef = React.useRef(null);
+  const scrollContainerRef = React.useRef(null);
+
+  const tableContainerRef = React.useRef(null);
+  const [isAtmInView, setIsAtmInView] = useState(true);
+  const [atmNode, setAtmNode] = useState(null);
+
+  useEffect(() => {
+    if (!atmNode || !tableContainerRef.current) {
+      // If there is no ATM node (e.g. no data), just assume it's in view so button hides
+      setIsAtmInView(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setIsAtmInView(entry.isIntersecting);
+      },
+      {
+        root: tableContainerRef.current,
+        threshold: 0,
+      },
+    );
+    observer.observe(atmNode);
+
+    return () => observer.disconnect();
+  }, [atmNode]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        futureDropdownRef.current &&
+        !futureDropdownRef.current.contains(event.target)
+      ) {
+        setIsFutureDropdownOpen(false);
+      }
+    };
+    if (isFutureDropdownOpen)
+      document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isFutureDropdownOpen]);
+
   // Derive date bounds from currentTimestamp using local time
   const year = currentTimestamp.getFullYear();
-  const month = String(currentTimestamp.getMonth() + 1).padStart(2, '0');
-  const day = String(currentTimestamp.getDate()).padStart(2, '0');
-  const hours = String(currentTimestamp.getHours()).padStart(2, '0');
-  const minutes = String(currentTimestamp.getMinutes()).padStart(2, '0');
-  
+  const month = String(currentTimestamp.getMonth() + 1).padStart(2, "0");
+  const day = String(currentTimestamp.getDate()).padStart(2, "0");
+  const hours = String(currentTimestamp.getHours()).padStart(2, "0");
+  const minutes = String(currentTimestamp.getMinutes()).padStart(2, "0");
+
   const dateStr = `${year}-${month}-${day}`;
   const startTs = `${dateStr}T09:16`;
   const endTs = `${dateStr}T15:30`;
@@ -71,8 +142,13 @@ export function OptionChainPanel({
           setExpiries(dates);
 
           // Select the nearest expiry if the current selection is invalid
-          if (dates.length > 0 && !dates.includes(selectedExpiry)) {
-            setSelectedExpiry(dates[0]);
+          if (dates.length > 0) {
+            const savedExpiry = localStorage.getItem("selectedExpiry");
+            if (savedExpiry && dates.includes(savedExpiry)) {
+              setSelectedExpiry(savedExpiry);
+            } else if (!dates.includes(selectedExpiry)) {
+              setSelectedExpiry(dates[0]);
+            }
           }
         } else {
           setExpiries([]);
@@ -96,6 +172,7 @@ export function OptionChainPanel({
       try {
         const data = await getOptionChain(selectedAsset.underlying, candleTs);
         setOptionChainData(data);
+        if (onDataLoaded) onDataLoaded(data);
       } catch (err) {
         console.error("Failed to fetch option chain", err);
         setError("Failed to load option chain data");
@@ -106,9 +183,72 @@ export function OptionChainPanel({
     loadOptionChain();
   }, [selectedAsset, selectedExpiry, candleTs]);
 
+  const handleFetchSpecificLTP = async (e, type, strike, index) => {
+    e.stopPropagation();
+    const icon = e.currentTarget.querySelector("svg");
+    if (icon) icon.classList.add("animate-spin");
+
+    const contractType = type === "call" ? "CE" : "PE";
+    const res = await fetchLTP(
+      candleTs,
+      selectedAsset.underlying,
+      selectedExpiry,
+      strike,
+      contractType
+    );
+
+    if (icon) icon.classList.remove("animate-spin");
+
+    if (res && res.symbols && res.symbols.length > 0 && res.symbols[0].close !== undefined && res.symbols[0].close !== null) {
+      setOptionChainData((prev) => {
+        if (!prev) return prev;
+        const newData = JSON.parse(JSON.stringify(prev)); // Deep clone
+        if (newData?.options?.[selectedExpiry]) {
+          const targetKey = type === "call" ? "call_close" : "put_close";
+          const deltaKey = type === "call" ? "call_delta" : "put_delta";
+          
+          if (!newData.options[selectedExpiry][targetKey]) {
+            newData.options[selectedExpiry][targetKey] = [];
+          }
+          newData.options[selectedExpiry][targetKey][index] = res.symbols[0].close;
+
+          if (res.symbols[0].delta !== undefined && res.symbols[0].delta !== null) {
+            if (!newData.options[selectedExpiry][deltaKey]) {
+              newData.options[selectedExpiry][deltaKey] = [];
+            }
+            newData.options[selectedExpiry][deltaKey][index] = res.symbols[0].delta;
+          }
+        }
+        return newData;
+      });
+    }
+  };
+
+  const futureExpiries = React.useMemo(() => {
+    if (optionChainData?.futures)
+      return Object.keys(optionChainData.futures).sort(
+        (a, b) => new Date(a) - new Date(b),
+      );
+    if (optionChainData?.implied_futures)
+      return Object.keys(optionChainData.implied_futures).sort(
+        (a, b) => new Date(a) - new Date(b),
+      );
+    return [];
+  }, [optionChainData]);
+
+  useEffect(() => {
+    if (
+      futureExpiries.length > 0 &&
+      (!selectedFutureExpiry || !futureExpiries.includes(selectedFutureExpiry))
+    ) {
+      setSelectedFutureExpiry(futureExpiries[0]);
+    }
+  }, [futureExpiries, selectedFutureExpiry]);
+
   // Transform data for the selected expiry
   let tableRows = [];
-  let currentFuturesPrice = null;
+  let syntheticFuturesPrice = null;
+  let topBarFuturesPrice = null;
 
   if (
     optionChainData &&
@@ -119,48 +259,80 @@ export function OptionChainPanel({
     const expiryData = optionChainData.options[selectedExpiry];
     const strikes = expiryData.strike || [];
 
-    // Futures
-    if (
-      optionChainData.implied_futures &&
-      optionChainData.implied_futures[selectedExpiry]
-    ) {
-      currentFuturesPrice = optionChainData.implied_futures[selectedExpiry];
-    } else if (
-      optionChainData.futures &&
-      optionChainData.futures[selectedExpiry]
-    ) {
-      currentFuturesPrice = optionChainData.futures[selectedExpiry].close;
+    // 1. Top Bar Futures Price (based on selectedFutureExpiry dropdown)
+    if (selectedFutureExpiry) {
+      if (optionChainData?.futures?.[selectedFutureExpiry]) {
+        topBarFuturesPrice = optionChainData.futures[selectedFutureExpiry].close;
+      } else if (optionChainData?.implied_futures?.[selectedFutureExpiry]) {
+        topBarFuturesPrice = optionChainData.implied_futures[selectedFutureExpiry];
+      }
+    }
+
+    // 2. Synthetic Futures Price (based on Option Chain selectedExpiry)
+    if (optionChainData?.implied_futures?.[selectedExpiry]) {
+      syntheticFuturesPrice = optionChainData.implied_futures[selectedExpiry];
+    } else if (optionChainData?.cash?.close) {
+      // Fallback to spot price if implied futures for this expiry is missing
+      syntheticFuturesPrice = optionChainData.cash.close;
+    }
+
+    // Find precise ATM strike
+    let atmStrike = null;
+    if (syntheticFuturesPrice) {
+      let minDiff = Infinity;
+      strikes.forEach((s) => {
+        const diff = Math.abs(s - syntheticFuturesPrice);
+        if (diff < minDiff) {
+          minDiff = diff;
+          atmStrike = s;
+        }
+      });
     }
 
     tableRows = strikes.map((strike, index) => {
-      const isCallITM = currentFuturesPrice && strike < currentFuturesPrice;
-      const isPutITM = currentFuturesPrice && strike > currentFuturesPrice;
+      const isCallITM = syntheticFuturesPrice && strike < syntheticFuturesPrice;
+      const isPutITM = syntheticFuturesPrice && strike > syntheticFuturesPrice;
+
+      const callIv = expiryData.call_implied_vol?.[index];
+      const putIv = expiryData.put_implied_vol?.[index];
+
+      let ivVal = null;
+      if (isCallITM) {
+        // Strike < Futures Price -> Put is OTM, use Put IV preferably
+        ivVal = putIv !== null && putIv !== undefined ? putIv : callIv;
+      } else {
+        // Strike >= Futures Price -> Call is OTM, use Call IV preferably
+        ivVal = callIv !== null && callIv !== undefined ? callIv : putIv;
+      }
+
+      const callCloseVal = expiryData.call_close?.[index];
+      const callDeltaVal = expiryData.call_delta?.[index];
+      const putCloseVal = expiryData.put_close?.[index];
+      const putDeltaVal = expiryData.put_delta?.[index];
 
       return {
         strike,
         callLtp:
-          expiryData.call_close?.[index] !== null
-            ? expiryData.call_close[index].toFixed(2)
+          callCloseVal != null && !isNaN(callCloseVal)
+            ? Number(callCloseVal).toFixed(2)
             : "--",
         callDelta:
-          expiryData.call_delta?.[index] !== null
-            ? expiryData.call_delta[index].toFixed(2)
+          callDeltaVal != null && !isNaN(callDeltaVal)
+            ? Number(callDeltaVal).toFixed(2)
             : "--",
         putLtp:
-          expiryData.put_close?.[index] !== null
-            ? expiryData.put_close[index].toFixed(2)
+          putCloseVal != null && !isNaN(putCloseVal)
+            ? Number(putCloseVal).toFixed(2)
             : "--",
         putDelta:
-          expiryData.put_delta?.[index] !== null
-            ? expiryData.put_delta[index].toFixed(2)
+          putDeltaVal != null && !isNaN(putDeltaVal)
+            ? Number(putDeltaVal).toFixed(2)
             : "--",
         iv:
-          expiryData.call_implied_vol?.[index] !== null
-            ? (expiryData.call_implied_vol[index] * 100).toFixed(1)
+          ivVal != null && !isNaN(ivVal)
+            ? (Number(ivVal) * 100).toFixed(1)
             : "--",
-        // Optional: highlight ATM row based on implied futures
-        highlight:
-          currentFuturesPrice && Math.abs(strike - currentFuturesPrice) < 25,
+        highlight: strike === atmStrike,
         isCallITM,
         isPutITM,
       };
@@ -169,12 +341,19 @@ export function OptionChainPanel({
 
   // Formatting for UI
   const cashClose = optionChainData?.cash?.close?.toFixed(2) || "0.00";
-  const displayFutures = currentFuturesPrice
-    ? currentFuturesPrice.toFixed(2)
+  const displayFutures = topBarFuturesPrice
+    ? topBarFuturesPrice.toFixed(2)
     : "--";
 
+  const changePercent = optionChainData?.cash?.change_percent ?? 0.62;
+  const changeValue =
+    optionChainData?.cash?.change ??
+    (parseFloat(cashClose) * changePercent) / 100;
+  const isPositive = changeValue >= 0;
+  const changeStr = `${isPositive ? "+" : ""}${changeValue.toFixed(2)} (${isPositive ? "+" : ""}${changePercent.toFixed(2)}%)`;
+
   return (
-    <div className="flex flex-col h-full bg-white border-r border-slate-200 overflow-hidden">
+    <div className="flex flex-col h-full bg-white border-r border-slate-200 overflow-hidden relative">
       {/* Tabs */}
       <div className="flex items-center border-b border-slate-200 pt-2">
         <button className="px-6 py-2 border-b-2 border-blue-500 text-blue-600 font-medium text-sm">
@@ -189,34 +368,107 @@ export function OptionChainPanel({
       </div>
 
       {/* Selectors Area */}
-      <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-        <div className="flex gap-8">
-          <div>
+      <div className="flex border-b border-slate-100 items-stretch">
+        {/* Spot Area */}
+        <div className="p-3 pl-4 flex-1">
+          <div className="text-[13px] text-slate-600 mb-0.5">
             <AssetSelector
               selectedAsset={selectedAsset}
               onAssetSelect={setSelectedAsset}
             />
-            <div className="text-sm font-bold mt-1">
-              {cashClose}{" "}
-              <span className="text-slate-400 text-xs font-medium ml-1">
-                (Spot)
-              </span>
-            </div>
           </div>
-          <div>
-            <div className="flex items-center gap-1 text-sm font-medium text-slate-700 cursor-pointer">
-              FUT ({selectedExpiry ? formatDateForPill(selectedExpiry) : "--"}){" "}
-              <ChevronDown className="w-4 h-4 text-slate-400" />
-            </div>
-            <div className="text-sm font-bold mt-1">{displayFutures}</div>
+          <div className="flex items-baseline gap-2 mt-0.5">
+            <span className="text-[12px] font-bold text-slate-900">
+              {cashClose}
+            </span>
+            <span
+              className={`text-[12px] ${isPositive ? "text-emerald-500" : "text-red-500"}`}
+            >
+              {changeStr}
+            </span>
           </div>
         </div>
 
-        <div className="flex gap-2">
-          <button className="w-8 h-8 flex items-center justify-center rounded-full border border-slate-200 text-slate-400 hover:bg-slate-50">
+        {/* Vertical Divider */}
+        <div className="w-px bg-slate-100"></div>
+
+        {/* Future Area */}
+        <div
+          className="p-3 pl-4 flex-1 flex justify-between items-center relative"
+          ref={futureDropdownRef}
+        >
+          <div>
+            <div
+              className="flex items-center gap-1 text-[13px] text-slate-600 cursor-pointer mb-0.5"
+              onClick={() => setIsFutureDropdownOpen(!isFutureDropdownOpen)}
+            >
+              FUT (
+              {selectedFutureExpiry
+                ? formatFutureExpiry(selectedFutureExpiry)
+                : "--"}
+              ) <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+            </div>
+            <div className="text-[12px] font-bold text-slate-900 mt-0.5">
+              {displayFutures}
+            </div>
+
+            {/* Future Dropdown */}
+            {isFutureDropdownOpen && (
+              <div className="absolute top-full left-0 mt-1 w-[380px] bg-white border border-slate-200 rounded shadow-lg z-50 overflow-hidden text-[13px]">
+                <div className="grid grid-cols-[30px_190px_80px_50px] px-3 py-2 bg-slate-50 border-b border-slate-100 text-slate-500 font-medium">
+                  <div></div>
+                  <div>Expiry</div>
+                  <div>LTP</div>
+                  <div>Lots</div>
+                </div>
+                {futureExpiries.map((exp, idx) => {
+                  const priceObj =
+                    optionChainData?.futures?.[exp]?.close ||
+                    optionChainData?.implied_futures?.[exp];
+                  const price = priceObj ? priceObj.toFixed(2) : "--";
+                  return (
+                    <div
+                      key={exp}
+                      className="grid grid-cols-[30px_190px_80px_50px] px-3 py-3 items-center hover:bg-slate-50 cursor-pointer border-b border-slate-50 last:border-0"
+                      onClick={() => {
+                        setSelectedFutureExpiry(exp);
+                        setIsFutureDropdownOpen(false);
+                      }}
+                    >
+                      <div className="flex items-center">
+                        <div
+                          className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${selectedFutureExpiry === exp ? "border-blue-500" : "border-slate-300"}`}
+                        >
+                          {selectedFutureExpiry === exp && (
+                            <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-slate-700 whitespace-nowrap">
+                        {formatFutureExpiry(exp)} (
+                        {getDaysToExpiryFull(exp, currentTimestamp)})
+                      </div>
+                      <div className="text-slate-700">{price}</div>
+                      <div className="text-slate-400 flex items-center">
+                        {idx > 0 && price === "--" && (
+                          <AlertTriangle className="w-4 h-4 text-amber-600/70" />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <button className="w-7 h-7 flex items-center justify-center rounded-full border border-slate-200 text-slate-400 hover:bg-slate-50 mr-2">
             <Plus className="w-4 h-4" />
           </button>
-          <button className="px-4 h-8 text-slate-400 text-sm rounded border border-transparent hover:bg-slate-50">
+        </div>
+
+        {/* Clear Button Area */}
+        <div className="w-px bg-slate-100"></div>
+        <div className="px-4 py-3 flex items-center justify-center bg-[#fafafa]">
+          <button className="text-slate-400 text-[13px] hover:text-slate-600 px-2 py-1">
             Clear
           </button>
         </div>
@@ -224,10 +476,23 @@ export function OptionChainPanel({
 
       {/* Expiry Tabs */}
       <div className="flex items-center px-2 py-3 border-b border-slate-100 gap-2">
-        <button className="text-slate-400 hover:text-slate-600">
+        <button
+          className="text-slate-400 hover:text-slate-600"
+          onClick={() => {
+            if (scrollContainerRef.current) {
+              scrollContainerRef.current.scrollBy({
+                left: -200,
+                behavior: "smooth",
+              });
+            }
+          }}
+        >
           <ChevronLeft className="w-5 h-5" />
         </button>
-        <div className="flex gap-2 overflow-x-auto no-scrollbar">
+        <div
+          className="flex gap-2 overflow-x-auto no-scrollbar"
+          ref={scrollContainerRef}
+        >
           {expiries.length === 0 ? (
             <span className="text-xs text-slate-400 px-2 py-1">
               No expiries available
@@ -244,7 +509,17 @@ export function OptionChainPanel({
             ))
           )}
         </div>
-        <button className="text-slate-400 hover:text-slate-600">
+        <button
+          className="text-slate-400 hover:text-slate-600"
+          onClick={() => {
+            if (scrollContainerRef.current) {
+              scrollContainerRef.current.scrollBy({
+                left: 200,
+                behavior: "smooth",
+              });
+            }
+          }}
+        >
           <ChevronRight className="w-5 h-5" />
         </button>
 
@@ -260,87 +535,182 @@ export function OptionChainPanel({
       </div>
 
       {/* Table Header */}
-      <div className="grid grid-cols-[1fr_1fr_1fr_1.5fr_1fr_1fr_1fr_1fr] px-2 py-1.5 text-[11px] font-medium text-slate-500 border-b border-slate-100">
-        <div className="text-left">Delta</div>
+      <div className="grid grid-cols-[1fr_1fr_1fr_1.5fr_1fr_1fr_1fr_1fr] py-1.5 text-[11px] font-medium text-slate-500 border-b border-slate-100">
+        <div className="text-left pl-6">Delta</div>
         <div className="text-center">Call LTP</div>
         <div className="text-center">Lots</div>
         <div className="text-center">Strike</div>
         <div className="text-center">IV</div>
         <div className="text-center">Lots</div>
         <div className="text-center">Put LTP</div>
-        <div className="text-right">Delta</div>
+        <div className="text-right pr-6">Delta</div>
       </div>
 
       {/* Table Body */}
-      <div className="flex-1 overflow-y-auto no-scrollbar">
+      <div
+        className="flex-1 overflow-y-auto no-scrollbar relative"
+        ref={tableContainerRef}
+      >
         {tableRows.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-sm">
             No option chain data available for this expiry.
           </div>
         ) : (
-          tableRows.map((row, i) => (
-            <div
-              key={i}
-              className="grid grid-cols-[1fr_1fr_1fr_1.5fr_1fr_1fr_1fr_1fr] text-[11px] items-stretch border-b border-slate-100 hover:opacity-90"
-            >
-              <div
-                className={`flex items-center text-slate-500 font-bold px-2 py-1.5 ${row.isCallITM ? "bg-[#fef9e7]" : "bg-white"}`}
-              >
-                {row.callDelta}
-              </div>
-              <div
-                className={`flex items-center justify-center font-bold text-slate-800 px-2 py-1.5 ${row.isCallITM ? "bg-[#fef9e7]" : "bg-white"}`}
-              >
-                {row.callLtp === "--" ? (
-                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600/70" />
-                ) : (
-                  row.callLtp
-                )}
-              </div>
-              <div
-                className={`flex items-center justify-center px-2 py-1.5 ${row.isCallITM ? "bg-[#fef9e7]" : "bg-white"}`}
-              ></div>
+          tableRows.map((row, i) => {
+            const isAtm = row.highlight;
+            const callBg = isAtm
+              ? "bg-[#e6f4ff]"
+              : row.isCallITM
+                ? "bg-[#fef9e7]"
+                : "bg-white";
+            const putBg = isAtm
+              ? "bg-[#e6f4ff]"
+              : row.isPutITM
+                ? "bg-[#fef9e7]"
+                : "bg-white";
+            const centerBg = isAtm ? "bg-[#e6f4ff]" : "bg-white";
 
-              <div className="flex items-center justify-center relative bg-white py-1">
-                <span
-                  className="text-[12px] font-semibold text-[#808080] bg-slate-100 px-2 py-0.5 rounded"
-                  style={{ fontVariationSettings: "normal" }}
+            return (
+              <div
+                key={i}
+                id={isAtm ? "atm-row" : undefined}
+                ref={isAtm ? setAtmNode : null}
+                className={`group grid grid-cols-[1fr_1fr_1fr_1.5fr_1fr_1fr_1fr_1fr] text-[11px]  items-stretch border-b hover:opacity-90 relative ${isAtm ? "border-[#0082f4] z-10" : "border-slate-100"}`}
+              >
+                <div
+                  className={`flex items-center text-slate-500 font-bold pl-6 pr-2 py-[12px] ${callBg}`}
                 >
-                  {row.strike}
-                </span>
-                {row.highlight && (
-                  <div className="absolute left-full ml-1 top-1/2 -translate-y-1/2 whitespace-nowrap bg-white border border-blue-500 text-blue-600 text-[10px] px-2 py-0.5 rounded z-10 shadow-sm cursor-pointer hover:bg-blue-50">
-                    Go to ATM
-                  </div>
-                )}
-              </div>
+                  {row.callDelta}
+                </div>
+                <div
+                  className={`flex items-center justify-center font-bold text-slate-800 px-2 py-1.5 ${callBg}`}
+                >
+                  {row.callLtp === "--" ? (
+                    <div className="relative flex items-center justify-center cursor-pointer [&>.tooltip]:hover:block">
+                      <AlertTriangle className="w-[15px] h-[15px] text-amber-500/80" strokeWidth={2} />
+                      <div className="tooltip absolute bottom-full mb-1 hidden bg-[#222] text-white text-[11px] px-2 py-1 rounded whitespace-nowrap z-50 font-normal shadow-sm">
+                        Illiquid Option
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-[#222]"></div>
+                      </div>
+                    </div>
+                  ) : (
+                    row.callLtp
+                  )}
+                </div>
+                <div
+                  className={`flex items-center justify-center px-2 py-1.5 ${callBg}`}
+                >
+                  {row.callLtp === "--" ? (
+                    <div className="hidden group-hover:flex relative items-center justify-center cursor-pointer [&>.tooltip]:hover:block"
+                         onClick={(e) => handleFetchSpecificLTP(e, 'call', row.strike, i)}>
+                      <RefreshCw className="w-[15px] h-[15px] text-[#0082f4]" strokeWidth={2.5} />
+                      <div className="tooltip absolute bottom-full mb-1 hidden bg-[#222] text-white text-xs px-2 py-1 rounded whitespace-nowrap z-50 font-normal">
+                        Fetch instrument's LTP
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-[#222]"></div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="hidden group-hover:flex items-center justify-center gap-1">
+                      <button className="w-[22px] h-[22px] flex items-center justify-center bg-white border border-[#94a3b8] text-[#1e3a5f] rounded-[4px] text-[10px] font-medium hover:bg-green-50 hover:text-green-500 hover:border-green-500 transition-colors">
+                        B
+                      </button>
+                      <button className="w-[22px] h-[22px] flex items-center justify-center bg-white border border-[#94a3b8] text-[#1e3a5f] rounded-[4px] text-[10px] font-medium hover:bg-red-50 hover:text-red-500 hover:border-red-500 transition-colors">
+                        S
+                      </button>
+                    </div>
+                  )}
+                </div>
 
-              <div
-                className={`flex items-center justify-center text-slate-500 px-2 py-1.5 ${row.isPutITM ? "bg-[#fef9e7]" : "bg-white"}`}
-              >
-                {row.iv}
+                <div
+                  className={`flex items-center justify-center relative py-1 ${centerBg}`}
+                >
+                  <span
+                    className="text-[12px] font-bold text-[#808080] bg-slate-100 px-2 py-0.5 rounded"
+                    style={{ fontVariationSettings: "normal" }}
+                  >
+                    {row.strike}
+                  </span>
+
+                  {isAtm && (
+                    <div className="absolute left-1/2 -translate-x-1/2 top-full -translate-y-1/2 z-20 bg-white border border-[#0082f4] text-[#0082f4] text-[10px] font-medium px-3 py-[2px] rounded-full whitespace-nowrap shadow-sm">
+                      Synthetic FUT{" "}
+                      {syntheticFuturesPrice
+                        ? syntheticFuturesPrice.toFixed(2)
+                        : "--"}
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  className={`flex items-center justify-center text-slate-500 px-2 py-1.5 ${putBg}`}
+                >
+                  {row.iv}
+                </div>
+                <div
+                  className={`flex items-center justify-center px-2 py-1.5 ${putBg}`}
+                >
+                  {row.putLtp === "--" ? (
+                    <div className="hidden group-hover:flex relative items-center justify-center cursor-pointer [&>.tooltip]:hover:block"
+                         onClick={(e) => handleFetchSpecificLTP(e, 'put', row.strike, i)}>
+                      <RefreshCw className="w-[15px] h-[15px] text-[#0082f4]" strokeWidth={2.5} />
+                      <div className="tooltip absolute bottom-full mb-1 hidden bg-[#222] text-white text-xs px-2 py-1 rounded whitespace-nowrap z-50 font-normal">
+                        Fetch instrument's LTP
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-[#222]"></div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="hidden group-hover:flex items-center justify-center gap-1">
+                      <button className="w-[22px] h-[22px] flex items-center justify-center bg-white border border-[#94a3b8] text-[#1e3a5f] rounded-[4px] text-[10px] font-medium hover:bg-green-50 hover:text-green-500 hover:border-green-500 transition-colors">
+                        B
+                      </button>
+                      <button className="w-[22px] h-[22px] flex items-center justify-center bg-white border border-[#94a3b8] text-[#1e3a5f] rounded-[4px] text-[10px] font-medium hover:bg-red-50 hover:text-red-500 hover:border-red-500 transition-colors">
+                        S
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div
+                  className={`flex items-center font-bold  justify-center text-slate-800 px-2 py-1.5 ${putBg}`}
+                >
+                  {row.putLtp === "--" ? (
+                    <div className="relative flex items-center justify-center cursor-pointer [&>.tooltip]:hover:block">
+                      <AlertTriangle className="w-[15px] h-[15px] text-amber-500/80" strokeWidth={2} />
+                      <div className="tooltip absolute bottom-full mb-1 hidden bg-[#222] text-white text-[11px] px-2 py-1 rounded whitespace-nowrap z-50 font-normal shadow-sm">
+                        Illiquid Option
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-[#222]"></div>
+                      </div>
+                    </div>
+                  ) : (
+                    row.putLtp
+                  )}
+                </div>
+                <div
+                  className={`flex items-center justify-end text-slate-500 pl-2 pr-6 py-1.5 ${putBg}`}
+                >
+                  {row.putDelta}
+                </div>
               </div>
-              <div
-                className={`flex items-center justify-center px-2 py-1.5 ${row.isPutITM ? "bg-[#fef9e7]" : "bg-white"}`}
-              ></div>
-              <div
-                className={`flex items-center font-bold  justify-center text-slate-800 px-2 py-1.5 ${row.isPutITM ? "bg-[#fef9e7]" : "bg-white"}`}
-              >
-                {row.putLtp === "--" ? (
-                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600/70" />
-                ) : (
-                  row.putLtp
-                )}
-              </div>
-              <div
-                className={`flex items-center justify-end text-slate-500 px-2 py-1.5 ${row.isPutITM ? "bg-[#fef9e7]" : "bg-white"}`}
-              >
-                {row.putDelta}
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
+
+      {/* Floating Go to ATM Button */}
+      {!isAtmInView && tableRows.some((r) => r.highlight) && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20">
+          <button
+            className="bg-white text-blue-600 border border-blue-600 shadow-[0_4px_12px_rgba(37,99,235,0.15)] px-4 py-2 rounded-full text-[13px] font-medium hover:bg-blue-50 transition-all flex items-center gap-1.5"
+            onClick={() => {
+              const atmNode = document.getElementById("atm-row");
+              if (atmNode) {
+                atmNode.scrollIntoView({ behavior: "smooth", block: "center" });
+              }
+            }}
+          >
+            Go to ATM
+          </button>
+        </div>
+      )}
     </div>
   );
 }

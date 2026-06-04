@@ -130,7 +130,15 @@ export function PlaybackToolbar({ currentTimestamp = new Date('2026-06-01T09:16:
     if (found) {
       setCurrentTimestamp(newTime);
     } else {
-      showToast(days > 0 ? "No data available after this date" : "No data available before this date");
+      let fallbackTime = new Date(currentTimestamp);
+      if (days > 0) {
+        fallbackTime.setHours(15, 30, 0, 0);
+        showToast("No data available after this date");
+      } else {
+        fallbackTime.setHours(9, 16, 0, 0);
+        showToast("No data available before this date");
+      }
+      setCurrentTimestamp(fallbackTime);
     }
   };
 

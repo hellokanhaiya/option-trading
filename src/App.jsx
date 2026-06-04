@@ -29,13 +29,37 @@ const getDefaultTimestamp = () => {
   return targetDate;
 };
 
+const getInitialTimestamp = () => {
+  const cached = localStorage.getItem('simulator_timestamp');
+  if (cached) {
+    const d = new Date(cached);
+    if (!isNaN(d.getTime())) return d;
+  }
+  return getDefaultTimestamp();
+};
+
 function App() {
-  const [currentTimestamp, setCurrentTimestamp] = useState(getDefaultTimestamp());
-  const [selectedAsset, setSelectedAsset] = useState({
-    id: "BANKNIFTY",
-    name: "BANKNIFTY",
-    underlying: "BANKNIFTY",
+  const [selectedAsset, setSelectedAsset] = useState(() => {
+    try {
+      const saved = localStorage.getItem("selectedAsset");
+      return saved ? JSON.parse(saved) : { name: 'NIFTY 50', underlying: 'NIFTY', exchange: 'NSE' };
+    } catch {
+      return { name: 'NIFTY 50', underlying: 'NIFTY', exchange: 'NSE' };
+    }
   });
+  
+  const [currentTimestamp, setCurrentTimestamp] = useState(getInitialTimestamp);
+
+  useEffect(() => {
+    localStorage.setItem("selectedAsset", JSON.stringify(selectedAsset));
+  }, [selectedAsset]);
+
+  useEffect(() => {
+    if (currentTimestamp) {
+      localStorage.setItem("simulator_timestamp", currentTimestamp.toISOString());
+    }
+  }, [currentTimestamp]);
+
   const [tradingDays, setTradingDays] = useState([]);
 
   useEffect(() => {
@@ -47,13 +71,15 @@ function App() {
     fetchCalendar();
   }, [selectedAsset]);
 
+  const [globalOptionData, setGlobalOptionData] = useState(null);
+
   return (
     <div className="flex flex-col h-screen bg-slate-50 overflow-hidden">
       <Header />
       <PlaybackToolbar currentTimestamp={currentTimestamp} setCurrentTimestamp={setCurrentTimestamp} tradingDays={tradingDays} />
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[45%_55%] overflow-hidden">
-        <OptionChainPanel currentTimestamp={currentTimestamp} selectedAsset={selectedAsset} setSelectedAsset={setSelectedAsset} />
-        <AnalysisPanel />
+        <OptionChainPanel currentTimestamp={currentTimestamp} selectedAsset={selectedAsset} setSelectedAsset={setSelectedAsset} onDataLoaded={setGlobalOptionData} />
+        <AnalysisPanel vixData={globalOptionData?.vix} />
       </div>
     </div>
   )

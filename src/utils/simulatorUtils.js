@@ -112,3 +112,46 @@ export async function getTradingCalendar(underlying) {
     return [];
   }
 }
+
+export async function fetchLTP(candle, underlying, expiry, strike, contractType) {
+  // Generate a random 8-character ID just like AlgoTest does
+  const id = Math.random().toString(36).substring(2, 10);
+  
+  // Format the candle string to ensure seconds are present
+  let formattedCandle = candle;
+  if (formattedCandle.length === 16) {
+    formattedCandle += ":00";
+  }
+
+  const payload = {
+    candle: formattedCandle,
+    symbols: [
+      {
+        id: id,
+        underlying: underlying,
+        expiry: expiry,
+        strike: strike,
+        contract_type: contractType
+      }
+    ]
+  };
+
+  try {
+    const response = await fetch("/api/algotest/ltp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error("Error fetching specific LTP:", error);
+    return null;
+  }
+}

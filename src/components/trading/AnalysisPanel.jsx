@@ -1,7 +1,13 @@
 import React from 'react';
 import { ChevronDown, HelpCircle, Layers } from 'lucide-react';
 
-export function AnalysisPanel() {
+export function AnalysisPanel({ vixData }) {
+  const vixClose = vixData?.close?.toFixed(2) || "--";
+  const vixChange = vixData?.change || 0;
+  const vixPercent = vixData?.change_percent || 0;
+  const isVixPositive = vixChange >= 0;
+  const vixChangeStr = vixData ? `${isVixPositive ? '+' : ''}${vixChange.toFixed(2)} (${isVixPositive ? '+' : ''}${vixPercent.toFixed(2)}%)` : "--";
+  const vixColor = isVixPositive ? 'text-emerald-500' : 'text-red-500';
   return (
     <div className="flex flex-col h-full bg-white relative">
       {/* Top Bar */}
@@ -15,8 +21,8 @@ export function AnalysisPanel() {
         <div className="flex items-center gap-6">
           <div className="text-xs">
             <span className="text-slate-500 font-medium">INDIAVIX</span>
-            <span className="font-bold ml-2">15.66</span>
-            <span className="text-red-500 ml-2">-0.71 (-4.34%)</span>
+            <span className="font-bold ml-2">{vixClose}</span>
+            <span className={`${vixColor} ml-2`}>{vixChangeStr}</span>
           </div>
           <button className="flex items-center gap-1 text-sm text-slate-600 hover:text-slate-800 font-medium">
             <HelpCircle className="w-4 h-4" /> Help Center <ChevronDown className="w-4 h-4" />

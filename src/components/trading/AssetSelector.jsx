@@ -80,7 +80,7 @@ export function AssetSelector({ selectedAsset, onAssetSelect }) {
   return (
     <div className="relative" ref={dropdownRef}>
       <div 
-        className="flex items-center gap-1 text-sm font-medium text-slate-700 cursor-pointer"
+        className="flex items-center gap-1 text-[12px] font-normal text-slate-600 cursor-pointer"
         onClick={toggleDropdown}
       >
         {selectedAsset.name} (Lot size: {lotSizes[selectedAsset.underlying] ? getActiveLotSize(selectedAsset.underlying) : 30}) <ChevronDown className="w-4 h-4 text-slate-400" />
