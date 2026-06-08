@@ -11,9 +11,20 @@ const INDEX_SYMBOLS = [
 ];
 const DELTA_SYMBOLS = ["BTCUSD", "ETHUSD"];
 
+export function getAuthHeaders() {
+  const cookie = localStorage.getItem('algotest_cookie') || '';
+  const csrf = localStorage.getItem('algotest_csrf') || '';
+  return {
+    'x-algotest-cookie': cookie,
+    'x-algotest-csrf': csrf
+  };
+}
+
 export async function getUnderlyingAssets() {
   try {
-    const response = await fetch("/api/algotest/underlyings");
+    const response = await fetch("/api/algotest/underlyings", {
+      headers: getAuthHeaders()
+    });
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -53,7 +64,9 @@ export async function getUnderlyingAssets() {
 
 export async function getLotSizes() {
   try {
-    const response = await fetch("/api/algotest/lot-sizes");
+    const response = await fetch("/api/algotest/lot-sizes", {
+      headers: getAuthHeaders()
+    });
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -69,6 +82,9 @@ export async function getDayContracts(underlying, start_ts, end_ts) {
   try {
     const response = await fetch(
       `/api/algotest/day-contracts?underlying=${encodeURIComponent(underlying)}&start_ts=${encodeURIComponent(start_ts)}&end_ts=${encodeURIComponent(end_ts)}`,
+      {
+        headers: getAuthHeaders()
+      }
     );
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -85,6 +101,9 @@ export async function getOptionChain(underlying, candle_ts) {
   try {
     const response = await fetch(
       `/api/algotest/option-chain?underlying=${encodeURIComponent(underlying)}&candle=${encodeURIComponent(candle_ts)}`,
+      {
+        headers: getAuthHeaders()
+      }
     );
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -101,6 +120,9 @@ export async function getTradingCalendar(underlying) {
   try {
     const response = await fetch(
       `/api/algotest/trading-calendar?underlying=${encodeURIComponent(underlying)}`,
+      {
+        headers: getAuthHeaders()
+      }
     );
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -140,7 +162,8 @@ export async function fetchLTP(candle, underlying, expiry, strike, contractType)
     const response = await fetch("/api/algotest/ltp", {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
       },
       body: JSON.stringify(payload)
     });
@@ -190,6 +213,7 @@ export async function calculateMargin(positions) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...getAuthHeaders()
       },
       body: JSON.stringify(payload),
     });

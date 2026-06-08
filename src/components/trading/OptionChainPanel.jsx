@@ -169,6 +169,7 @@ export function OptionChainPanel({
   positions,
   setPositions,
   onOpenAlerts,
+  onClearAll
 }) {
   const [activeLeftTab, setActiveLeftTab] = useState("optionChain");
   const [showOnlyPositions, setShowOnlyPositions] = useState(false);
@@ -854,7 +855,7 @@ export function OptionChainPanel({
         <div className="flex items-center w-20">
           <div className="flex items-center w-full gap-4 pl-2 pr-1">
             <button
-              onClick={() => setPositions([])}
+              onClick={onClearAll}
               disabled={!positions || positions.length === 0}
               className={`w-full font-medium text-[13px] ${
                 !positions || positions.length === 0

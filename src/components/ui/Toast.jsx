@@ -30,17 +30,17 @@ export function ToastContainer() {
   return (
     <div className="fixed top-4 right-4 z-[200] flex flex-col gap-2">
       {toasts.map(t => (
-        <div key={t.id} className="bg-white border border-slate-200 shadow-xl rounded-md p-4 w-80 relative flex gap-3 shadow-slate-200/50">
+        <div key={t.id} className="bg-white border border-slate-200 shadow-xl rounded-md py-3 px-4 w-80 relative flex gap-3 shadow-slate-200/50">
           <button 
             onClick={() => setToasts(prev => prev.filter(x => x.id !== t.id))}
-            className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
+            className="absolute top-3 right-3 text-slate-400 hover:text-slate-600"
           >
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" className="w-4 h-4">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
           
-          <div className="flex-1 text-sm text-slate-800 font-medium pt-1">
+          <div className="flex-1 text-sm text-slate-800 font-medium mt-0.5">
             {t.type === "stopLoss" && <div className="text-xs font-bold text-slate-900 mb-1">StopLoss alert</div>}
             {t.type === "target" && <div className="text-xs font-bold text-slate-900 mb-1">Target alert</div>}
             {t.type === "global" && <div className="text-xs font-bold text-slate-900 mb-1">Global alert</div>}

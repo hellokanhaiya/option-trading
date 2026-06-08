@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ChevronDown, Lock, ChevronLeft, ChevronRight, Play, Pause } from 'lucide-react';
 import { CustomDateTimePicker } from '../ui/CustomDateTimePicker';
 
-export function PlaybackToolbar({ currentTimestamp = new Date('2026-06-01T09:16:00'), setCurrentTimestamp, tradingDays = [], hasPositions = false }) {
+export function PlaybackToolbar({ currentTimestamp = new Date('2026-06-01T09:16:00'), setCurrentTimestamp, tradingDays = [], hasPositions = false, forcePause = false }) {
   const [hoverVal, setHoverVal] = useState(null);
   const [hoverX, setHoverX] = useState(0);
 
@@ -12,6 +12,12 @@ export function PlaybackToolbar({ currentTimestamp = new Date('2026-06-01T09:16:
   const [autoplayMove, setAutoplayMove] = useState(1); // mins
   const [autoplayInterval, setAutoplayInterval] = useState(1000); // ms
   const autoplayDropdownRef = useRef(null);
+
+  useEffect(() => {
+    if (forcePause) {
+      setIsAutoplaying(false);
+    }
+  }, [forcePause]);
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -234,10 +240,8 @@ export function PlaybackToolbar({ currentTimestamp = new Date('2026-06-01T09:16:
 
       {/* Bottom Controls Row */}
       <div className="flex items-center justify-between px-4 py-2 border-t border-slate-100 gap-4">
-        {/* Left: Import/Export */}
-        <div className="flex items-center gap-1 text-sm text-blue-600 font-medium cursor-pointer shrink-0">
-          Import/Export <ChevronDown className="w-4 h-4" />
-        </div>
+        {/* Left: Empty Space for Balance */}
+        <div className="w-16 shrink-0"></div>
 
         {/* Center: Playback Controls */}
         <div className="flex flex-wrap items-center justify-center gap-2 lg:gap-4 shrink-0 mx-auto">

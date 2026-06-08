@@ -383,20 +383,18 @@ export function AnalysisPanel({
         zoom: {
           pan: {
             enabled: true,
-            mode: "xy",
-            modifierKey: "shift",
+            mode: "x",
           },
           zoom: {
             wheel: {
               enabled: true,
-              modifierKey: "ctrl",
             },
             drag: {
               enabled: true,
               modifierKey: "alt",
             },
             pinch: { enabled: true },
-            mode: "xy",
+            mode: "x",
           },
         },
         annotation: {
@@ -499,10 +497,6 @@ export function AnalysisPanel({
               {vixChangeStr}
             </span>
           </div>
-          <button className="flex items-center gap-1 text-[13px] text-blue-600 hover:text-blue-700 font-medium">
-            <HelpCircle className="w-4 h-4" /> Help Center{" "}
-            <ChevronDown className="w-4 h-4" />
-          </button>
         </div>
       </div>
 
@@ -601,7 +595,7 @@ export function AnalysisPanel({
             <div className="flex-1 px-2 pb-4 min-h-0">
               {chartData && (
                 <Line 
-                  key={`${currentSpot}-${currentTimestamp?.getTime()}-${positions?.length}`}
+                  key={`payoff-chart-${positions?.length}`}
                   ref={chartRef} 
                   data={chartData} 
                   options={chartOptions} 

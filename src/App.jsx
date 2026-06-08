@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Header } from './components/layout/Header'
 import { PlaybackToolbar } from './components/layout/PlaybackToolbar'
 import { OptionChainPanel } from './components/trading/OptionChainPanel'
@@ -85,7 +85,10 @@ function App() {
     }
   });
 
+  const positionsRef = useRef(positions);
+
   useEffect(() => {
+    positionsRef.current = positions;
     localStorage.setItem("simulator_positions", JSON.stringify(positions));
   }, [positions]);
 
@@ -206,7 +209,7 @@ function App() {
   }, [currentTimestamp, globalOptionData, positions, globalAlerts, triggeredAlerts]);
 
   const handleTimestampChange = (newTime) => {
-    if (!positions || positions.length === 0 || !newTime || !currentTimestamp) {
+    if (!positionsRef.current || positionsRef.current.length === 0 || !newTime || !currentTimestamp) {
       setCurrentTimestamp(newTime);
       return;
     }
@@ -214,7 +217,7 @@ function App() {
     if (newTime.getTime() > currentTimestamp.getTime()) {
       let crossedExpiries = [];
 
-      for (const pos of positions) {
+      for (const pos of positionsRef.current) {
         const p = pos.data || pos;
         if (!p.Expiry) continue;
         
@@ -235,6 +238,22 @@ function App() {
         setPendingTimestamp(newTime);
         return;
       }
+    } else if (newTime.getTime() < currentTimestamp.getTime()) {
+      // Time is moving backwards. Remove any positions that were "traded" in the future
+      const validPositions = positionsRef.current.filter(pos => {
+        const p = pos.data || pos;
+        if (!p.TradedTime) return true;
+        
+        // TradedTime is stored without the Z (e.g. 2026-06-01T03:46:00) but it represents UTC time.
+        // We append 'Z' to parse it correctly back into local time.
+        const tradeDate = new Date(p.TradedTime + (p.TradedTime.endsWith('Z') ? '' : 'Z'));
+        return tradeDate.getTime() <= newTime.getTime();
+      });
+      
+      if (validPositions.length !== positionsRef.current.length) {
+        setPositions(validPositions);
+        positionsRef.current = validPositions;
+      }
     }
     
     setCurrentTimestamp(newTime);
@@ -254,6 +273,7 @@ function App() {
   const handleAutoExpire = () => {
     const remainingPositions = positions.filter(pos => !expiringPositions.includes(pos));
     setPositions(remainingPositions);
+    positionsRef.current = remainingPositions;
     
     const nextTime = pendingTimestamp;
     setExpiringPositions([]);
@@ -270,10 +290,18 @@ function App() {
     setPendingTimestamp(null);
   };
 
+  const handleClearAllData = () => {
+    setPositions([]);
+    setGlobalAlerts({});
+    setTriggeredAlerts(new Set());
+    localStorage.removeItem("simulator_positions");
+    localStorage.removeItem("simulator_alerts");
+  };
+
   return (
     <div className="flex flex-col h-screen bg-slate-50 overflow-hidden">
       <Header />
-      <PlaybackToolbar currentTimestamp={currentTimestamp} setCurrentTimestamp={handleTimestampChange} tradingDays={tradingDays} hasPositions={positions && positions.length > 0} />
+      <PlaybackToolbar currentTimestamp={currentTimestamp} setCurrentTimestamp={handleTimestampChange} tradingDays={tradingDays} hasPositions={positions && positions.length > 0} forcePause={expiringPositions.length > 0} />
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[45%_55%] overflow-hidden">
         <OptionChainPanel 
           currentTimestamp={currentTimestamp} 
@@ -283,6 +311,7 @@ function App() {
           positions={positions}
           setPositions={setPositions}
           onOpenAlerts={() => setIsAlertsOpen(true)}
+          onClearAll={handleClearAllData}
         />
         <AnalysisPanel 
           vixData={globalOptionData?.vix} 
@@ -311,6 +340,7 @@ function App() {
           currentSpot={globalOptionData?.cash?.close}
           totalMTM={positions && positions.length > 0 && globalOptionData ? calcExactMtm(positions, globalOptionData?.cash?.close, currentTimestamp, globalOptionData) : 0}
           totalDelta={0}
+          optionChainData={globalOptionData}
         />
       )}
       
