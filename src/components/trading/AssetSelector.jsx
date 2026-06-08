@@ -20,10 +20,19 @@ export function AssetSelector({ selectedAsset, onAssetSelect }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Fetch lot sizes on mount so we can display the correct lot size in the header
+  useEffect(() => {
+    getLotSizes().then(data => {
+      if (data && typeof data === 'object') {
+        setLotSizes(data);
+      }
+    }).catch(console.error);
+  }, []);
+
   const toggleDropdown = () => {
     if (!isOpen && assets.indices.length === 0) {
       setIsLoading(true);
-      Promise.all([getUnderlyingAssets(), getLotSizes()])
+      Promise.all([getUnderlyingAssets(), Object.keys(lotSizes).length > 0 ? Promise.resolve(lotSizes) : getLotSizes()])
         .then(([assetsData, lotSizesData]) => {
           // Filter out items that have an empty lot size object
           const filterWithLots = (list) => {
@@ -83,7 +92,7 @@ export function AssetSelector({ selectedAsset, onAssetSelect }) {
         className="flex items-center gap-1 text-[12px] font-normal text-slate-600 cursor-pointer"
         onClick={toggleDropdown}
       >
-        {selectedAsset.name} (Lot size: {lotSizes[selectedAsset.underlying] ? getActiveLotSize(selectedAsset.underlying) : 30}) <ChevronDown className="w-4 h-4 text-slate-400" />
+        {selectedAsset.name} (Lot size: {lotSizes[selectedAsset.underlying] ? getActiveLotSize(selectedAsset.underlying) : '-'}) <ChevronDown className="w-4 h-4 text-slate-400" />
       </div>
 
       {isOpen && (

@@ -1,10 +1,49 @@
-import React, { useState } from 'react';
-import { ChevronDown, Lock, ChevronLeft, ChevronRight, Play } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { ChevronDown, Lock, ChevronLeft, ChevronRight, Play, Pause } from 'lucide-react';
 import { CustomDateTimePicker } from '../ui/CustomDateTimePicker';
 
-export function PlaybackToolbar({ currentTimestamp = new Date('2026-06-01T09:16:00'), setCurrentTimestamp, tradingDays = [] }) {
+export function PlaybackToolbar({ currentTimestamp = new Date('2026-06-01T09:16:00'), setCurrentTimestamp, tradingDays = [], hasPositions = false }) {
   const [hoverVal, setHoverVal] = useState(null);
   const [hoverX, setHoverX] = useState(0);
+
+  // Autoplay states
+  const [isAutoplaying, setIsAutoplaying] = useState(false);
+  const [autoplayDropdownOpen, setAutoplayDropdownOpen] = useState(false);
+  const [autoplayMove, setAutoplayMove] = useState(1); // mins
+  const [autoplayInterval, setAutoplayInterval] = useState(1000); // ms
+  const autoplayDropdownRef = useRef(null);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (autoplayDropdownRef.current && !autoplayDropdownRef.current.contains(e.target)) {
+        setAutoplayDropdownOpen(false);
+      }
+    };
+    if (autoplayDropdownOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [autoplayDropdownOpen]);
+
+  // Autoplay interval
+  useEffect(() => {
+    let intervalId;
+    if (isAutoplaying) {
+      intervalId = setInterval(() => {
+        if (autoplayMove === 1440) {
+          handleDayJump(1);
+        } else {
+          handleTimeJump(autoplayMove);
+        }
+      }, autoplayInterval);
+    }
+    return () => clearInterval(intervalId);
+  }, [isAutoplaying, autoplayMove, autoplayInterval, currentTimestamp, tradingDays]);
+
+  const formatAutoplaySettings = () => {
+    let mStr = autoplayMove >= 60 ? (autoplayMove === 1440 ? "1d" : `${autoplayMove / 60}h`) : `${autoplayMove}m`;
+    let iStr = `${autoplayInterval / 1000}s`;
+    return `${mStr}/${iStr}`;
+  };
 
   const minMins = 9 * 60 + 16;
   const maxMins = 15 * 60 + 30;
@@ -230,14 +269,78 @@ export function PlaybackToolbar({ currentTimestamp = new Date('2026-06-01T09:16:
         </div>
 
         {/* Right: Autoplay */}
-        <div className="flex items-center gap-3 shrink-0">
-          <button className="flex items-center gap-1 text-sm text-slate-600 hover:text-slate-800 font-medium">
-            <Play className="w-4 h-4 fill-current" />
-            Autoplay
-          </button>
-          <div className="flex items-center gap-1 text-sm text-slate-600 cursor-pointer">
-            1m/1s <ChevronDown className="w-4 h-4" />
+        <div className="flex items-center shrink-0 relative" ref={autoplayDropdownRef}>
+          <div className={`flex items-center rounded overflow-hidden border transition-colors ${
+            isAutoplaying || hasPositions ? 'border-[#e0f0ff] bg-[#f0f7ff]' : 'border-slate-100 bg-slate-50'
+          }`}>
+            <button 
+              onClick={() => setIsAutoplaying(!isAutoplaying)}
+              className={`flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 transition-colors border-r ${
+                isAutoplaying || hasPositions ? 'text-[#0082f4] border-[#e0f0ff] hover:bg-[#e6f3ff]' : 'text-slate-600 border-slate-100 hover:bg-slate-100'
+              }`}
+            >
+              {isAutoplaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
+              {isAutoplaying ? "Playing..." : "Autoplay"}
+            </button>
+            <div 
+              className={`flex items-center gap-1 text-sm cursor-pointer px-3 py-1.5 transition-colors ${
+                isAutoplaying || hasPositions ? 'text-[#0082f4] hover:bg-[#e6f3ff]' : 'text-slate-600 hover:bg-slate-100'
+              }`}
+              onClick={() => setAutoplayDropdownOpen(!autoplayDropdownOpen)}
+            >
+              {formatAutoplaySettings()} <ChevronDown className="w-4 h-4" />
+            </div>
           </div>
+
+          {autoplayDropdownOpen && (
+            <div className="absolute top-full right-0 mt-2 w-48 bg-white border border-slate-200 shadow-xl rounded-lg z-50 p-3 text-sm">
+              <div className="mb-3">
+                <div className="text-slate-500 font-medium mb-2">Move</div>
+                <div className="flex flex-col gap-2 pl-1">
+                  {[
+                    { label: "1 min", val: 1 },
+                    { label: "5 min", val: 5 },
+                    { label: "15 min", val: 15 },
+                    { label: "30 min", val: 30 },
+                    { label: "1 hr", val: 60 },
+                    { label: "1 day", val: 1440 }
+                  ].map(opt => (
+                    <label key={opt.label} className="flex items-center gap-2 cursor-pointer">
+                      <input 
+                        type="radio" 
+                        name="autoplayMove" 
+                        className="text-blue-600 w-3.5 h-3.5 accent-blue-500"
+                        checked={autoplayMove === opt.val}
+                        onChange={() => setAutoplayMove(opt.val)}
+                      />
+                      <span className={autoplayMove === opt.val ? "text-slate-900 font-medium" : "text-slate-600"}>{opt.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="border-t border-slate-100 pt-3">
+                <div className="text-slate-500 font-medium mb-2">Every</div>
+                <div className="flex flex-col gap-2 pl-1">
+                  {[
+                    { label: "1 sec", val: 1000 },
+                    { label: "5 sec", val: 5000 },
+                    { label: "10 sec", val: 10000 }
+                  ].map(opt => (
+                    <label key={opt.label} className="flex items-center gap-2 cursor-pointer">
+                      <input 
+                        type="radio" 
+                        name="autoplayInterval" 
+                        className="text-blue-600 w-3.5 h-3.5 accent-blue-500"
+                        checked={autoplayInterval === opt.val}
+                        onChange={() => setAutoplayInterval(opt.val)}
+                      />
+                      <span className={autoplayInterval === opt.val ? "text-slate-900 font-medium" : "text-slate-600"}>{opt.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
